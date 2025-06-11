@@ -1,0 +1,220 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// Provider configuration for different Git services
+model Provider {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  type          String   // github, gitlab, forgejo, custom
+  endpoint      String
+  icon          String?
+  status        String   @default("inactive") // active, degraded, inactive
+  health        Int      @default(100) // 0-100
+  
+  // Authentication
+  authType      String   // token, oauth, ssh
+  credentials   Json     // Encrypted credentials
+  
+  // Capabilities
+  capabilities  Json     // Provider-specific capabilities
+  
+  // Metrics
+  lastSync      DateTime?
+  lastHealthCheck DateTime?
+  
+  // Relations
+  repositories  RepositoryProvider[]
+  syncJobs      SyncJob[]
+  failoverEvents FailoverEvent[]
+  alerts        Alert[]
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// Repository configuration
+model Repository {
+  id            String   @id @default(cuid())
+  name          String
+  fullName      String   @unique // owner/repo format
+  defaultBranch String   @default("main")
+  
+  // Relations
+  providers     RepositoryProvider[]
+  syncJobs      SyncJob[]
+  conflicts     Conflict[]
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// Many-to-many relation between repositories and providers
+model RepositoryProvider {
+  id           String   @id @default(cuid())
+  
+  repository   Repository @relation(fields: [repositoryId], references: [id])
+  repositoryId String
+  
+  provider     Provider @relation(fields: [providerId], references: [id])
+  providerId   String
+  
+  // Provider-specific repository data
+  remoteUrl    String
+  isPrimary    Boolean  @default(false)
+  syncEnabled  Boolean  @default(true)
+  
+  lastSyncedAt DateTime?
+  lastSyncedCommit String?
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  @@unique([repositoryId, providerId])
+}
+
+// Sync queue and job tracking
+model SyncJob {
+  id            String   @id @default(cuid())
+  
+  repository    Repository @relation(fields: [repositoryId], references: [id])
+  repositoryId  String
+  
+  action        String   // push, pull, sync
+  branch        String
+  commit        String?
+  
+  // Target providers
+  providers     Provider[]
+  providerIds   Json     // Array of provider IDs
+  
+  status        String   @default("queued") // queued, processing, completed, failed, cancelled
+  priority      Int      @default(0) // Higher number = higher priority
+  progress      Int      @default(0) // 0-100
+  
+  // Execution details
+  startedAt     DateTime?
+  completedAt   DateTime?
+  error         String?
+  attempts      Int      @default(0)
+  maxAttempts   Int      @default(3)
+  
+  // Job metadata
+  metadata      Json?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// Conflict tracking
+model Conflict {
+  id            String   @id @default(cuid())
+  
+  repository    Repository @relation(fields: [repositoryId], references: [id])
+  repositoryId  String
+  
+  branch        String
+  conflictType  String   // merge_conflict, diverged_history, force_push
+  
+  // Conflict details
+  baseCommit    String
+  sourceCommit  String
+  targetCommit  String
+  
+  affectedFiles Json     // Array of file paths
+  conflictData  Json     // Detailed conflict information
+  
+  status        String   @default("pending") // pending, resolved, ignored
+  resolution    String?  // auto, manual, forced
+  resolvedBy    String?
+  resolvedAt    DateTime?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// Failover and recovery events
+model FailoverEvent {
+  id               String   @id @default(cuid())
+  
+  type             String   // failover, recovery
+  
+  provider         Provider @relation(fields: [providerId], references: [id])
+  providerId       String
+  
+  fallbackProvider String?  // Provider ID used as fallback
+  reason           String
+  affectedRepos    Int
+  
+  status           String   @default("active") // active, resolved, completed
+  duration         Int?     // Duration in seconds
+  
+  metadata         Json?    // Additional event data
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// Alert and notification tracking
+model Alert {
+  id            String   @id @default(cuid())
+  
+  type          String   // provider_down, sync_failed, conflict_detected, etc.
+  severity      String   // info, warning, error, critical
+  
+  title         String
+  message       String
+  
+  provider      Provider? @relation(fields: [providerId], references: [id])
+  providerId    String?
+  
+  status        String   @default("active") // active, acknowledged, resolved
+  
+  // Notification details
+  notifiedVia   Json?    // Array of notification channels used
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+  resolvedAt    DateTime?
+  
+  metadata      Json?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// System configuration
+model SystemConfig {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  value         Json
+  description   String?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// Audit log for tracking all operations
+model AuditLog {
+  id            String   @id @default(cuid())
+  
+  action        String   // sync_started, provider_added, conflict_resolved, etc.
+  entityType    String   // provider, repository, sync_job, etc.
+  entityId      String
+  
+  userId        String?
+  userAgent     String?
+  ipAddress     String?
+  
+  changes       Json?    // Before/after values for updates
+  metadata      Json?
+  
+  createdAt     DateTime @default(now())
+}
