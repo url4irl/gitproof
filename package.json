@@ -12,7 +12,8 @@
     "db:push": "concurrently -n services,push -c magenta.bold,blue.bold \"pnpm run services\" \"wait-on tcp:5432 && prisma db push\"",
     "db:seed": "concurrently -n services,seed -c magenta.bold,blue.bold \"pnpm run services\" \"wait-on tcp:5432 && tsx prisma/seed.ts\"",
     "db:studio": "concurrently -n services,studio -c magenta.bold,blue.bold \"pnpm run services\" \"wait-on tcp:5432 && prisma studio\"",
-    "services": "docker-compose -f docker-compose.dev.yml --profile tools up"
+    "services": "docker-compose -f docker-compose.dev.yml --profile tools up",
+    "worker": "concurrently -n services,worker -c magenta.bold,green.bold \"pnpm run services\" \"wait-on tcp:5432 && wait-on tcp:6379 && tsx worker.ts\""
   },
   "dependencies": {
     "@prisma/client": "^6.1.0",
