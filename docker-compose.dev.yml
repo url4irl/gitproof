@@ -1,0 +1,88 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: gitproof-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gitproof
+      POSTGRES_USER: gitproof
+      POSTGRES_PASSWORD: gitproof123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    networks:
+      - gitproof-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gitproof -d gitproof"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    container_name: gitproof-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - gitproof-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: Redis Commander for Redis GUI
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: gitproof-redis-commander
+    restart: unless-stopped
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    networks:
+      - gitproof-network
+    depends_on:
+      - redis
+    profiles:
+      - tools
+
+  # Optional: pgAdmin for PostgreSQL GUI
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: gitproof-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - gitproof-network
+    depends_on:
+      - postgres
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  gitproof-network:
+    driver: bridge
