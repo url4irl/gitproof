@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { createSyncJobSchema, syncQueueFilterSchema } from '@/lib/validations';
 import { SyncJob } from '@/lib/types';
 import { z } from 'zod';
+import { createAndQueueSyncJob } from '@/lib/queue';
 
 export async function GET(request: NextRequest) {
   try {
@@ -133,28 +134,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create sync job
-    const job = await prisma.syncJob.create({
-      data: {
-        repositoryId: validatedData.repositoryId,
-        action: validatedData.action,
-        branch: validatedData.branch,
-        commit: validatedData.commit,
-        providerIds: validatedData.providers,
-        priority: validatedData.priority,
-        metadata: {
-          createdBy: 'api',
-          timestamp: new Date().toISOString(),
-        },
+    // Create sync job and queue it
+    const result = await createAndQueueSyncJob({
+      repositoryId: validatedData.repositoryId,
+      action: validatedData.action as 'push' | 'pull' | 'sync',
+      priority: validatedData.priority,
+      sourceRef: validatedData.branch,
+      targetRef: validatedData.branch,
+      commitHash: validatedData.commit,
+      providers: validatedData.providers,
+      metadata: {
+        createdBy: 'api',
+        timestamp: new Date().toISOString(),
       },
+    });
+
+    // Return the created job with repository details
+    const jobWithDetails = await prisma.syncJob.findUnique({
+      where: { id: result.syncJob.id },
       include: {
         repository: true,
       },
     });
 
-    // TODO: Queue the job for processing using BullMQ
-
-    return NextResponse.json(job, { status: 201 });
+    return NextResponse.json(jobWithDetails, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
